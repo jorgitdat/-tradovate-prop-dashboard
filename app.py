@@ -5,12 +5,13 @@ Access your trading signals from your phone!
 """
 
 from flask import Flask, render_template, jsonify
-import json
-import subprocess
-import threading
+import os
 import time
 from datetime import datetime
-import yfinance as yf
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 
 app = Flask(__name__)
 
@@ -29,6 +30,10 @@ class SimpleWebDashboard:
     def get_live_signals(self):
         """Get current market data and basic signals"""
         signals = []
+        
+        if not yf:
+            # Fallback demo data if yfinance not available
+            return self._get_demo_signals()
         
         for yahoo_symbol, display_symbol in self.symbols.items():
             try:
@@ -97,9 +102,53 @@ class SimpleWebDashboard:
                 
         return signals
     
+    def _get_demo_signals(self):
+        """Fallback demo signals when yfinance unavailable"""
+        demo_signals = []
+        import random
+        
+        for yahoo_symbol, display_symbol in self.symbols.items():
+            base_price = {"ES=F": 4500, "NQ=F": 16000, "YM=F": 35000, "GC=F": 2000, "MGC=F": 200, "BTC-USD": 45000}.get(yahoo_symbol, 1000)
+            current_price = base_price + random.randint(-50, 50)
+            
+            directions = ["LONG", "SHORT", "NEUTRAL"]
+            direction = random.choice(directions)
+            strength = random.randint(1, 4)
+            confidence = random.randint(65, 95)
+            
+            if direction == "LONG":
+                tp = current_price + random.randint(20, 100)
+                sl = current_price - random.randint(10, 50)
+            elif direction == "SHORT":
+                tp = current_price - random.randint(20, 100)
+                sl = current_price + random.randint(10, 50)
+            else:
+                tp = current_price + random.randint(5, 25)
+                sl = current_price - random.randint(5, 25)
+            
+            rr_ratio = abs(tp - current_price) / abs(current_price - sl) if abs(current_price - sl) > 0 else 2.0
+            
+            demo_signals.append({
+                'symbol': display_symbol,
+                'price': f"${current_price:.2f}",
+                'direction': direction,
+                'strength': strength,
+                'confidence': f"{confidence}%",
+                'tp': f"${tp:.2f}",
+                'sl': f"${sl:.2f}",
+                'rr_ratio': f"{rr_ratio:.1f}:1",
+                'session': 'DEMO',
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            })
+        
+        return demo_signals
+    
     def get_mtf_analysis(self):
         """Get simple multi-timeframe analysis"""
         mtf_data = []
+        
+        if not yf:
+            return self._get_demo_mtf()
         
         for yahoo_symbol, display_symbol in self.symbols.items():
             try:
@@ -165,6 +214,32 @@ class SimpleWebDashboard:
                 
         return mtf_data
     
+    def _get_demo_mtf(self):
+        """Demo MTF data when yfinance unavailable"""
+        import random
+        trends = ["BULLISH", "BEARISH", "NEUTRAL"]
+        alignments = ["STRONG BULL", "WEAK BULL", "MIXED", "WEAK BEAR", "STRONG BEAR"]
+        
+        demo_mtf = []
+        for yahoo_symbol, display_symbol in self.symbols.items():
+            trend_1h = random.choice(trends)
+            trend_15m = random.choice(trends)
+            trend_5m = random.choice(trends)
+            trend_1m = random.choice(trends)
+            alignment = random.choice(alignments)
+            bias = "DEMO MODE" if "BULL" in alignment else "DEMO MODE"
+            
+            demo_mtf.append({
+                'symbol': display_symbol,
+                'trend_1h': trend_1h,
+                'trend_15m': trend_15m,
+                'trend_5m': trend_5m,
+                'trend_1m': trend_1m,
+                'alignment': alignment,
+                'bias': bias
+            })
+        return demo_mtf
+    
     def get_session_info(self):
         """Get current session information"""
         now = datetime.now()
@@ -224,7 +299,8 @@ def api_session():
     return jsonify(dashboard.get_session_info())
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
     print("🌐 Starting Simple Tradovate Web Dashboard...")
-    print("📱 Access from your phone at: http://192.168.1.157:5000")
-    print("💻 Local access: http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print(f"📱 Running on port: {port}")
+    print("💻 Dashboard starting...")
+    app.run(host='0.0.0.0', port=port, debug=False)
