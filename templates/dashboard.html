@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Tradovate Prop Firm Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: rgba(0,0,0,0.2);
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .status {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        
+        .container {
+            padding: 1rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .tabs {
+            display: flex;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            overflow-x: auto;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 0.8rem;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.3s;
+            white-space: nowrap;
+            min-width: 120px;
+        }
+        
+        .tab.active {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .signals-grid {
+            display: grid;
+            gap: 1rem;
+        }
+        
+        .signal-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 4px solid #4CAF50;
+        }
+        
+        .signal-card.short {
+            border-left-color: #f44336;
+        }
+        
+        .signal-card.neutral {
+            border-left-color: #ff9800;
+        }
+        
+        .signal-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .symbol {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .direction {
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        
+        .direction.long {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .direction.short {
+            background: #f44336;
+            color: white;
+        }
+        
+        .direction.neutral {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .signal-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .stars {
+            color: #ffd700;
+        }
+        
+        .mtf-grid {
+            overflow-x: auto;
+        }
+        
+        .mtf-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        .mtf-table th,
+        .mtf-table td {
+            padding: 0.5rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .mtf-table th {
+            background: rgba(255,255,255,0.1);
+            font-weight: bold;
+        }
+        
+        .trend-bullish {
+            color: #4CAF50;
+        }
+        
+        .trend-bearish {
+            color: #f44336;
+        }
+        
+        .trend-neutral {
+            color: #ff9800;
+        }
+        
+        .session-info {
+            display: grid;
+            gap: 0.5rem;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .refresh-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 1rem 0;
+            width: 100%;
+        }
+        
+        .last-update {
+            text-align: center;
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-top: 1rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 0.5rem;
+            }
+            
+            .signal-details {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎯 Tradovate Prop Firm Dashboard</h1>
+        <div class="status" id="connection-status">🟢 Connected</div>
+    </div>
+    
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('signals')">📊 Live Signals</div>
+            <div class="tab" onclick="showTab('mtf')">🎯 MTF Analysis</div>
+            <div class="tab" onclick="showTab('session')">⏰ Session Info</div>
+        </div>
+        
+        <div id="signals-tab" class="tab-content active">
+            <div class="signals-grid" id="signals-container">
+                <div class="card">Loading signals...</div>
+            </div>
+        </div>
+        
+        <div id="mtf-tab" class="tab-content">
+            <div class="card">
+                <h3>Multi-Timeframe Analysis</h3>
+                <div class="mtf-grid">
+                    <table class="mtf-table" id="mtf-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>1H</th>
+                                <th>15M</th>
+                                <th>5M</th>
+                                <th>1M</th>
+                                <th>Alignment</th>
+                                <th>Bias</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mtf-tbody">
+                            <tr><td colspan="7">Loading MTF data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div id="session-tab" class="tab-content">
+            <div class="card">
+                <h3>Current Session</h3>
+                <div class="session-info" id="session-info">
+                    <div class="info-item">
+                        <span>Loading session data...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Now</button>
+        
+        <div class="last-update" id="last-update">
+            Last updated: Loading...
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+        
+        // Socket events
+        socket.on('connect', function() {
+            document.getElementById('connection-status').innerHTML = '🟢 Connected';
+        });
+        
+        socket.on('disconnect', function() {
+            document.getElementById('connection-status').innerHTML = '🔴 Disconnected';
+        });
+        
+        socket.on('signals_update', function(signals) {
+            updateSignals(signals);
+        });
+        
+        socket.on('mtf_update', function(mtfData) {
+            updateMTF(mtfData);
+        });
+        
+        socket.on('session_update', function(sessionInfo) {
+            updateSession(sessionInfo);
+        });
+        
+        function updateSignals(signals) {
+            const container = document.getElementById('signals-container');
+            
+            if (signals.length === 0) {
+                container.innerHTML = '<div class="card">No signals available</div>';
+                return;
+            }
+            
+            const html = signals.map(signal => {
+                const directionClass = signal.direction.toLowerCase();
+                const stars = '⭐'.repeat(signal.strength);
+                
+                return `
+                    <div class="signal-card ${directionClass}">
+                        <div class="signal-header">
+                            <span class="symbol">${signal.symbol}</span>
+                            <span class="direction ${directionClass}">${signal.direction}</span>
+                        </div>
+                        <div class="signal-details">
+                            <div class="detail-item">
+                                <span>Price:</span>
+                                <span>${signal.price}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span>Strength:</span>
+                                <span class="stars">${stars}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span>Confidence:</span>
+                                <span>${signal.confidence}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span>TP:</span>
+                                <span>${signal.tp}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span>SL:</span>
+                                <span>${signal.sl}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span>R/R:</span>
+                                <span>${signal.rr_ratio}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = html;
+            updateLastUpdate();
+        }
+        
+        function updateMTF(mtfData) {
+            const tbody = document.getElementById('mtf-tbody');
+            
+            if (mtfData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7">No MTF data available</td></tr>';
+                return;
+            }
+            
+            const html = mtfData.map(item => {
+                function getTrendClass(trend) {
+                    if (trend === 'BULLISH') return 'trend-bullish';
+                    if (trend === 'BEARISH') return 'trend-bearish';
+                    return 'trend-neutral';
+                }
+                
+                return `
+                    <tr>
+                        <td><strong>${item.symbol}</strong></td>
+                        <td class="${getTrendClass(item.trend_1h)}">${item.trend_1h}</td>
+                        <td class="${getTrendClass(item.trend_15m)}">${item.trend_15m}</td>
+                        <td class="${getTrendClass(item.trend_5m)}">${item.trend_5m}</td>
+                        <td class="${getTrendClass(item.trend_1m)}">${item.trend_1m}</td>
+                        <td>${item.alignment}</td>
+                        <td>${item.bias}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            tbody.innerHTML = html;
+        }
+        
+        function updateSession(sessionInfo) {
+            const container = document.getElementById('session-info');
+            
+            const html = `
+                <div class="info-item">
+                    <span>Session:</span>
+                    <span>${sessionInfo.session}</span>
+                </div>
+                <div class="info-item">
+                    <span>Time:</span>
+                    <span>${sessionInfo.time}</span>
+                </div>
+                <div class="info-item">
+                    <span>Volume:</span>
+                    <span>${sessionInfo.volume_expectation}</span>
+                </div>
+                <div class="info-item">
+                    <span>Volatility:</span>
+                    <span>${sessionInfo.volatility}</span>
+                </div>
+                <div class="info-item">
+                    <span>Best Symbols:</span>
+                    <span>${sessionInfo.best_symbols}</span>
+                </div>
+                <div class="info-item">
+                    <span>Strategy:</span>
+                    <span>${sessionInfo.strategy_focus}</span>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        function updateLastUpdate() {
+            document.getElementById('last-update').textContent = 
+                'Last updated: ' + new Date().toLocaleTimeString();
+        }
+        
+        function refreshData() {
+            socket.emit('refresh_request');
+        }
+        
+        // Initial load
+        fetch('/api/signals').then(r => r.json()).then(updateSignals);
+        fetch('/api/mtf').then(r => r.json()).then(updateMTF);
+        fetch('/api/session').then(r => r.json()).then(updateSession);
+    </script>
+</body>
+</html>
