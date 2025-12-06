@@ -5,15 +5,12 @@ Access your trading signals from your phone!
 """
 
 from flask import Flask, render_template, jsonify
-import os
-import random
+import json
+import subprocess
+import threading
+import time
 from datetime import datetime
-try:
-    import yfinance as yf
-    LIVE_DATA = True
-except ImportError:
-    LIVE_DATA = False
-    print("⚠️ yfinance not available - using demo data")
+import yfinance as yf
 
 app = Flask(__name__)
 
@@ -27,13 +24,11 @@ class SimpleWebDashboard:
             'MGC=F': 'MGC', # Micro Gold
             'BTC-USD': 'MBT' # Bitcoin (proxy for MBT)
         }
+        self.latest_data = []
         
     def get_live_signals(self):
-        """Get live trading signals"""
+        """Get current market data and basic signals"""
         signals = []
-        
-        if not LIVE_DATA:
-            return self._get_demo_signals()
         
         for yahoo_symbol, display_symbol in self.symbols.items():
             try:
@@ -43,7 +38,7 @@ class SimpleWebDashboard:
                 if not hist.empty:
                     current_price = hist['Close'].iloc[-1]
                     
-                    # Simple trend analysis  
+                    # Simple trend analysis
                     sma_20 = hist['Close'].rolling(20).mean().iloc[-1]
                     sma_50 = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else sma_20
                     
@@ -99,83 +94,75 @@ class SimpleWebDashboard:
                     
             except Exception as e:
                 print(f"Error getting data for {yahoo_symbol}: {e}")
-        
-        # Fallback to demo if no live data
-        if not signals:
-            return self._get_demo_signals()
-        return signals
-    
-    def _get_demo_signals(self):
-        """Fallback demo signals"""
-        signals = []
-        
-        for yahoo_symbol, display_symbol in self.symbols.items():
-            base_price = {
-                "ES=F": 4500, 
-                "NQ=F": 16000, 
-                "YM=F": 35000, 
-                "GC=F": 2000, 
-                "MGC=F": 200, 
-                "BTC-USD": 45000
-            }.get(yahoo_symbol, 1000)
-            
-            current_price = base_price + random.randint(-50, 50)
-            
-            directions = ["LONG", "SHORT", "NEUTRAL"]
-            direction = random.choice(directions)
-            strength = random.randint(1, 4)
-            confidence = random.randint(65, 95)
-            
-            if direction == "LONG":
-                tp = current_price + random.randint(20, 100)
-                sl = current_price - random.randint(10, 50)
-            elif direction == "SHORT":
-                tp = current_price - random.randint(20, 100)
-                sl = current_price + random.randint(10, 50)
-            else:
-                tp = current_price + random.randint(5, 25)
-                sl = current_price - random.randint(5, 25)
-            
-            rr_ratio = abs(tp - current_price) / abs(current_price - sl) if abs(current_price - sl) > 0 else 2.0
-            
-            signals.append({
-                'symbol': display_symbol,
-                'price': f"${current_price:.2f}",
-                'direction': direction,
-                'strength': strength,
-                'confidence': f"{confidence}%",
-                'tp': f"${tp:.2f}",
-                'sl': f"${sl:.2f}",
-                'rr_ratio': f"{rr_ratio:.1f}:1",
-                'session': 'DEMO',
-                'timestamp': datetime.now().strftime('%H:%M:%S')
-            })
-        
+                
         return signals
     
     def get_mtf_analysis(self):
-        """Get demo MTF data"""
-        trends = ["BULLISH", "BEARISH", "NEUTRAL"]
-        alignments = ["STRONG BULL", "WEAK BULL", "MIXED", "WEAK BEAR", "STRONG BEAR"]
-        
+        """Get simple multi-timeframe analysis"""
         mtf_data = []
+        
         for yahoo_symbol, display_symbol in self.symbols.items():
-            trend_1h = random.choice(trends)
-            trend_15m = random.choice(trends)
-            trend_5m = random.choice(trends)
-            trend_1m = random.choice(trends)
-            alignment = random.choice(alignments)
-            bias = "DEMO MODE"
-            
-            mtf_data.append({
-                'symbol': display_symbol,
-                'trend_1h': trend_1h,
-                'trend_15m': trend_15m,
-                'trend_5m': trend_5m,
-                'trend_1m': trend_1m,
-                'alignment': alignment,
-                'bias': bias
-            })
+            try:
+                ticker = yf.Ticker(yahoo_symbol)
+                
+                # Get different timeframes
+                hist_1h = ticker.history(period="5d", interval="1h")
+                hist_15m = ticker.history(period="2d", interval="15m") 
+                hist_5m = ticker.history(period="1d", interval="5m")
+                hist_1m = ticker.history(period="1d", interval="1m")
+                
+                def get_trend(data):
+                    if data.empty or len(data) < 20:
+                        return "NEUTRAL"
+                    
+                    sma_20 = data['Close'].rolling(20).mean().iloc[-1]
+                    current = data['Close'].iloc[-1]
+                    
+                    if current > sma_20 * 1.001:
+                        return "BULLISH"
+                    elif current < sma_20 * 0.999:
+                        return "BEARISH"
+                    else:
+                        return "NEUTRAL"
+                
+                trend_1h = get_trend(hist_1h)
+                trend_15m = get_trend(hist_15m)
+                trend_5m = get_trend(hist_5m)
+                trend_1m = get_trend(hist_1m)
+                
+                # Determine alignment
+                bullish_count = [trend_1h, trend_15m, trend_5m, trend_1m].count('BULLISH')
+                bearish_count = [trend_1h, trend_15m, trend_5m, trend_1m].count('BEARISH')
+                
+                if bullish_count >= 3:
+                    alignment = "STRONG BULL"
+                    bias = "LONG BIAS"
+                elif bearish_count >= 3:
+                    alignment = "STRONG BEAR"
+                    bias = "SHORT BIAS"
+                elif bullish_count > bearish_count:
+                    alignment = "WEAK BULL"
+                    bias = "LONG LEAN"
+                elif bearish_count > bullish_count:
+                    alignment = "WEAK BEAR" 
+                    bias = "SHORT LEAN"
+                else:
+                    alignment = "MIXED"
+                    bias = "NO BIAS"
+                
+                mtf_data.append({
+                    'symbol': display_symbol,
+                    'trend_1h': trend_1h,
+                    'trend_15m': trend_15m,
+                    'trend_5m': trend_5m,
+                    'trend_1m': trend_1m,
+                    'alignment': alignment,
+                    'bias': bias
+                })
+                
+            except Exception as e:
+                print(f"Error getting MTF for {yahoo_symbol}: {e}")
+                
         return mtf_data
     
     def get_session_info(self):
@@ -236,13 +223,8 @@ def api_session():
     """API endpoint for session info"""
     return jsonify(dashboard.get_session_info())
 
-@app.route('/health')
-def health():
-    """Health check endpoint"""
-    return jsonify({'status': 'healthy', 'message': 'Tradovate Dashboard is running!'})
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    print("🌐 Starting Tradovate Dashboard...")
-    print(f"📱 Port: {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print("🌐 Starting Simple Tradovate Web Dashboard...")
+    print("📱 Access from your phone at: http://192.168.1.157:5000")
+    print("💻 Local access: http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False)
